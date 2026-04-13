@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>提出物チェックアプリ</title>
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #48bb78; /* 提出済み（緑） */
+            --danger-color: #ef4444;  /* 未提出（赤） */
+            --warning-color: #fbbf24; /* リセット（黄） */
+            --bg-color: #f3f4f6;
+            --glass-bg: rgba(255, 255, 255, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.5);
+            --text-main: #374151;
+            --text-light: #6b7280;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none; /* テキスト選択防止 */
+            -webkit-tap-highlight-color: transparent; /* タップ時のハイライト消去 */
+        }
+
+        body {
+            font-family: 'M PLUS Rounded 1c', 'Hiragino Maru Gothic ProN', 'BIZ UDGothic', sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: var(--text-main);
+            overflow: hidden;
+        }
+
+        /* スクロールバーのカスタマイズ */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 3px; }
+
+        .app-container {
+            width: 100%;
+            max-width: 1400px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+
+        /* --- Header --- */
+        .app-header {
+            padding: 15px 20px;
+            background: var(--glass-bg);
+            border-bottom: 1px solid var(--glass-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            z-index: 10;
+        }
+        .header-title { font-size: 1.2rem; font-weight: 700; display: flex; align-items: center; gap: 8px;}
+        .current-task-name { font-size: 1.1rem; color: var(--primary-color); font-weight: 700; background: white; padding: 4px 12px; border-radius: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}
+
+        /* --- Main Content Area --- */
+        .main-content {
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .tab-pane {
+            display: none;
+            width: 100%;
+            height: 100%;
+            padding: 20px;
+            overflow-y: auto;
+            animation: fadeIn 0.3s ease;
+        }
+        .tab-pane.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* --- Check Tab Layout (3 columns) --- */
+        .check-layout {
+            display: flex;
+            gap: 20px;
+            height: 100%;
+        }
+        .glass-panel {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Column 1: 座席表 (さらに広く設定) */
+        .col-seat { flex: 11; overflow-x: auto;}
+        .blackboard {
+            background: #2e7d32;
+            color: white;
+            text-align: center;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.3);
+        }
+        .seat-grid-container {
+            flex: 1;
+            overflow: auto;
+            padding-bottom: 10px;
+        }
+        .seat-grid {
+            display: grid;
+            /* 行と列はJSで動的に設定します */
+            grid-auto-flow: row; /* 横に並べて折り返す */
+            gap: 12px;
+            min-height: min-content;
+        }
+
+        /* Column 2: 出席番号 (3列構成に合わせて調整) */
+        .col-num { flex: 2.5; min-width: 180px; }
+        .num-header { font-size: 0.9rem; color: var(--text-light); margin-bottom: 15px; text-align: center;}
+        .num-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        /* Column 3: ステータス＆リスト (幅をさらに抑える) */
+        .col-status { flex: 2.5; min-width: 200px; }
+        .status-cards {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .status-card {
+            flex: 1;
+            padding: 15px 10px;
+            border-radius: 12px;
+            text-align: center;
+            background: white;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .status-card.submitted { color: var(--primary-color); border-top: 4px solid var(--primary-color); }
+        .status-card.unsubmitted { color: var(--danger-color); border-top: 4px solid var(--danger-color); }
+        .status-label { font-size: 0.8rem; margin-bottom: 5px; color: var(--text-light); }
+        .status-count { font-size: 2.5rem; font-weight: 700; line-height: 1;}
+        .status-count span { font-size: 1rem; font-weight: normal;}
+
+        .btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: bold;
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        .btn:active { transform: scale(0.96); }
+        .btn-reset { background: var(--warning-color); margin-bottom: 20px; color: #78350f;}
+        .btn-reset:hover { background: #f59e0b; }
+
+        .list-header { font-size: 0.9rem; font-weight: bold; color: var(--danger-color); margin-bottom: 10px; display: flex; align-items: center; gap: 5px;}
+        .unsubmitted-list {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .list-item {
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 12px 15px;
+            border-radius: 8px;
+            font-weight: bold;
+            display: flex;
+            gap: 15px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .list-item:hover { background: #fca5a5; }
+        .list-item .id { width: 20px; text-align: right; opacity: 0.7;}
+
+        /* --- Buttons (Seat & Num) --- */
+        .student-btn {
+            background: white;
+            border: 2px solid transparent;
+            border-radius: 10px;
+            padding: 10px 5px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: grab; /* ドラッグ可能であることを示す */
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            color: var(--text-main);
+            min-height: 70px;
+            position: relative;
+            overflow: hidden;
+        }
+        .student-btn:active { transform: scale(0.92); cursor: grabbing; }
+        .student-btn.submitted {
+            background: var(--primary-color);
+            color: white;
+            box-shadow: 0 4px 10px rgba(72, 187, 120, 0.4);
+        }
+        .student-btn .id { font-size: 0.8rem; opacity: 0.8; margin-bottom: 4px; }
+        .student-btn .name { font-size: 0.9rem; font-weight: bold; width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 4px;}
+
+        .num-btn {
+            min-height: 50px;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        .num-btn .id { margin: 0; font-size: 1.1rem; opacity: 1;}
+        .num-btn .name { display: none; } /* 番号グリッドでは名前を隠す */
+
+        /* 空席用スタイル（黒塗り） */
+        .empty-seat {
+            background-color: #111827 !important;
+            border: none !important;
+            box-shadow: none !important;
+            color: transparent !important;
+        }
+        .empty-seat * {
+            display: none !important;
+        }
+
+        /* --- Settings & History Tabs --- */
+        .settings-container, .history-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .section-title { font-size: 1.5rem; margin-bottom: 20px; color: var(--text-main); border-bottom: 2px solid var(--primary-color); padding-bottom: 5px; display: inline-block;}
+        
+        .form-group { margin-bottom: 15px; display: flex; gap: 10px; align-items: center;}
+        .form-group input { flex: 1; padding: 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 1rem; font-family: inherit;}
+        .btn-primary { background: var(--primary-color); }
+        .btn-primary:hover { background: #38a169; }
+
+        .student-edit-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-bottom: 20px;}
+        .student-edit-item { display: flex; align-items: center; background: white; padding: 5px 10px; border-radius: 8px; border: 1px solid #ddd;}
+        .student-edit-item span { width: 30px; font-weight: bold; color: var(--text-light);}
+        .student-edit-item input[type="text"] { border: none; outline: none; flex: 1; font-size: 1rem; padding: 5px; font-family: inherit; width: 60px;}
+
+        .task-list { list-style: none; margin-top: 20px;}
+        .task-item { background: white; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);}
+        .task-item-info strong { font-size: 1.1rem; }
+        .task-item-info span { font-size: 0.8rem; color: var(--text-light); margin-left: 10px;}
+        .btn-select { background: #3b82f6; width: auto; padding: 8px 16px; font-size: 0.9rem;}
+        .task-item.active { border: 2px solid var(--primary-color); background: #f0fdf4;}
+
+        /* --- Tab Navigation (Bottom) --- */
+        .tab-nav {
+            display: flex;
+            background: var(--glass-bg);
+            border-top: 1px solid var(--glass-border);
+            backdrop-filter: blur(10px);
+            padding-bottom: env(safe-area-inset-bottom); /* iOS対応 */
+            box-shadow: 0 -4px 10px rgba(0,0,0,0.05);
+            z-index: 10;
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 15px 0;
+            background: none;
+            border: none;
+            font-size: 1rem;
+            font-weight: bold;
+            color: var(--text-light);
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+            font-family: inherit;
+        }
+        .tab-btn.active {
+            color: var(--primary-color);
+        }
+        .tab-btn::after {
+            content: '';
+            width: 0;
+            height: 3px;
+            background: var(--primary-color);
+            border-radius: 3px;
+            transition: width 0.3s;
+        }
+        .tab-btn.active::after { width: 40px; }
+
+        /* --- Responsive --- */
+        @media (max-width: 900px) {
+            .check-layout { flex-direction: column; }
+            .col-seat, .col-num, .col-status { width: 100%; flex: none; }
+            .col-seat { min-height: 300px; }
+            .col-num { height: 200px; }
+            .col-status { height: 350px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <header class="app-header">
+        <div class="header-title">
+            📋 提出物チェック
+        </div>
+        <div class="current-task-name" id="header-task-name">タスク未選択</div>
+    </header>
+
+    <main class="main-content">
+        <!-- チェックタブ -->
+        <div id="tab-check" class="tab-pane active">
+            <div class="check-layout">
+                <!-- 左：座席表 -->
+                <div class="col-seat glass-panel">
+                    <div class="blackboard">黒板</div>
+                    <div class="seat-grid-container">
+                        <div class="seat-grid" id="seat-grid">
+                            <!-- JSで生成 -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 中：出席番号 -->
+                <div class="col-num glass-panel">
+                    <div class="num-header">出席番号 連打でチェック</div>
+                    <div class="num-grid" id="num-grid">
+                        <!-- JSで生成 -->
+                    </div>
+                </div>
+
+                <!-- 右：ステータス -->
+                <div class="col-status glass-panel">
+                    <div class="status-cards">
+                        <div class="status-card submitted">
+                            <div class="status-label">提出済み</div>
+                            <div class="status-count"><span id="count-submitted">0</span><span>名</span></div>
+                        </div>
+                        <div class="status-card unsubmitted">
+                            <div class="status-label">未提出</div>
+                            <div class="status-count"><span id="count-unsubmitted">0</span><span>名</span></div>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-bottom: 15px; text-align: center;">
+                        <label style="font-size: 0.8rem; font-weight: bold; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap;">
+                            <input type="checkbox" id="check-reverse" onchange="app.toggleReverse(this.checked)" style="width: 16px; height: 16px; cursor: pointer;">
+                            席を反転する（黒板を下にする）
+                        </label>
+                    </div>
+
+                    <button class="btn btn-reset" onclick="app.resetCurrentTask()">↺ 全員リセット</button>
+
+                    <div class="list-header">⚠️ 未提出者</div>
+                    <div class="unsubmitted-list" id="unsubmitted-list">
+                        <!-- JSで生成 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 履歴（タスク）タブ -->
+        <div id="tab-history" class="tab-pane">
+            <div class="history-container glass-panel">
+                <h2 class="section-title">新しいチェック項目を作る</h2>
+                <div class="form-group">
+                    <input type="text" id="new-task-input" placeholder="例：集金、漢字ドリル...">
+                    <button class="btn btn-primary" style="width: auto; padding: 12px 24px;" onclick="app.createNewTask()">作成</button>
+                </div>
+
+                <h2 class="section-title" style="margin-top: 30px;">チェック履歴・切り替え</h2>
+                <ul class="task-list" id="task-list">
+                    <!-- JSで生成 -->
+                </ul>
+            </div>
+        </div>
+
+        <!-- 設定タブ -->
+        <div id="tab-setting" class="tab-pane">
+            <div class="settings-container glass-panel">
+                <h2 class="section-title">座席のレイアウト設定</h2>
+                <div class="form-group" style="align-items: center; gap: 15px; display: inline-flex; flex-wrap: wrap;">
+                    <label style="font-size: 1.2rem; font-weight: bold;">横</label>
+                    <input type="number" id="setting-cols" min="1" max="15" style="width: 60px; flex: none; font-size: 1.2rem; text-align: center; border: 1px solid #ccc; border-radius: 4px; padding: 4px;">
+                    <label style="font-size: 1.2rem; font-weight: bold; margin-left: 10px;">縦</label>
+                    <input type="number" id="setting-rows" min="1" max="15" style="width: 60px; flex: none; font-size: 1.2rem; text-align: center; border: 1px solid #ccc; border-radius: 4px; padding: 4px;">
+                </div>
+
+                <h2 class="section-title" style="margin-top: 20px;">名簿の編集（最大40名）</h2>
+                <p style="margin-bottom: 15px; color: var(--text-light); font-size: 0.9rem;">出席番号と名前を編集し、いない席（空席）にはチェックを入れて保存してください。※変更はすべてのタスクに反映されます。</p>
+                <div class="student-edit-list" id="student-edit-list">
+                    <!-- JSで生成 -->
+                </div>
+                <button class="btn btn-primary" onclick="app.saveStudents()">💾 設定と名簿を保存する</button>
+
+                <h2 class="section-title" style="margin-top: 30px;">データのバックアップ</h2>
+                <p style="margin-bottom: 15px; color: var(--text-light); font-size: 0.9rem;">ブラウザのデータが消えた場合に備えて、定期的にバックアップを取ることをおすすめします。</p>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button class="btn btn-primary" style="flex: 1; min-width: 180px;" onclick="app.exportData()">📥 バックアップを保存</button>
+                    <label class="btn" style="flex: 1; min-width: 180px; background: #3b82f6; text-align: center; cursor: pointer;">
+                        📤 バックアップから復元
+                        <input type="file" accept=".json" style="display: none;" onchange="app.importData(this.files[0]); this.value='';">
+                    </label>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 下部タブナビゲーション -->
+    <nav class="tab-nav">
+        <button class="tab-btn" onclick="app.switchTab('setting')" id="nav-setting">
+            <span>⚙️</span>設定
+        </button>
+        <button class="tab-btn active" onclick="app.switchTab('check')" id="nav-check">
+            <span>✅</span>チェック
+        </button>
+        <button class="tab-btn" onclick="app.switchTab('history')" id="nav-history">
+            <span>📁</span>履歴
+        </button>
+    </nav>
+</div>
+
+<script>
+/**
+ * 提出物チェックアプリ メインロジック
+ */
+
+// Web Audio API による効果音生成（遅延初期化）
+const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+
+function getAudioContext() {
+    if (!audioCtx) {
+        audioCtx = new AudioContextClass();
+    }
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+    return audioCtx;
+}
+
+function playTone(type) {
+    const ctx = getAudioContext();
+    const osc = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+
+    osc.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    if (type === 'success') {
+        // 提出（正解）：ピンポン（明るい2音）
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
+        osc.frequency.setValueAtTime(1046.5, ctx.currentTime + 0.1); // C6
+        gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.3);
+    } else if (type === 'error') {
+        // 未提出に戻す（不正解）：ブブー（低いブザー）
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, ctx.currentTime);
+        osc.frequency.setValueAtTime(140, ctx.currentTime + 0.1);
+        gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.2);
+    }
+}
+
+// HTMLエスケープ関数（XSS対策）
+function escapeHTML(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+// アプリケーションクラス
+class App {
+    constructor() {
+        this.state = {
+            students: [],
+            tasks: [],
+            records: {}, // { taskId: { studentId: boolean } }
+            currentTaskId: null,
+            seatRows: 6,
+            seatCols: 7,
+            isReversed: false
+        };
+        this.init();
+    }
+
+    init() {
+        this.loadData();
+        
+        // デフォルト設定
+        if (!this.state.seatRows) this.state.seatRows = 6;
+        if (!this.state.seatCols) this.state.seatCols = 7;
+        if (typeof this.state.isReversed === 'undefined') this.state.isReversed = false;
+
+        // 40人になるように補完（初回起動または過去のデータ読み込み時）
+        if (this.state.students.length < 40) {
+            const currentLen = this.state.students.length;
+            for (let i = currentLen + 1; i <= 40; i++) {
+                this.state.students.push({ id: i, name: `児童 ${i}`, isEmpty: false });
+            }
+        }
+
+        if (this.state.tasks.length === 0) {
+            const taskId = 'task_' + Date.now();
+            this.state.tasks.push({ id: taskId, name: '今日のプリント', date: new Date().toLocaleDateString() });
+            this.state.records[taskId] = {};
+            this.state.currentTaskId = taskId;
+        } else if (!this.state.currentTaskId) {
+            this.state.currentTaskId = this.state.tasks[0].id;
+        }
+
+        this.saveData();
+        this.renderAll();
+    }
+
+    // --- データ管理 ---
+    loadData() {
+        try {
+            const data = localStorage.getItem('submitCheckData');
+            if (data) {
+                this.state = JSON.parse(data);
+            }
+        } catch (e) {
+            console.error('データの読み込みに失敗しました:', e);
+            alert('保存データの読み込みに失敗しました。初期状態で起動します。');
+        }
+    }
+
+    saveData() {
+        try {
+            localStorage.setItem('submitCheckData', JSON.stringify(this.state));
+        } catch (e) {
+            console.error('データの保存に失敗しました:', e);
+            alert('データの保存に失敗しました。ストレージの容量が不足している可能性があります。');
+        }
+    }
+
+    exportData() {
+        const json = JSON.stringify(this.state, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = '提出物チェック_バックアップ_' + new Date().toLocaleDateString().replace(/\//g, '-') + '.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    importData(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const imported = JSON.parse(e.target.result);
+                if (!imported.students || !imported.tasks) {
+                    alert('正しいバックアップファイルではありません。');
+                    return;
+                }
+                if (confirm('現在のデータを上書きしてバックアップから復元しますか？')) {
+                    this.state = imported;
+                    this.saveData();
+                    this.renderAll();
+                    alert('データを復元しました。');
+                }
+            } catch (err) {
+                alert('ファイルの読み込みに失敗しました。正しいJSONファイルか確認してください。');
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    // --- 画面レンダリング ---
+    renderAll() {
+        this.renderHeader();
+        this.renderCheckTab();
+        this.renderHistoryTab();
+        this.renderSettingTab();
+    }
+
+    renderHeader() {
+        const task = this.state.tasks.find(t => t.id === this.state.currentTaskId);
+        document.getElementById('header-task-name').textContent = task ? task.name : 'タスク未選択';
+    }
+
+    renderCheckTab() {
+        if (!this.state.currentTaskId) return;
+
+        const blackboard = document.querySelector('.blackboard');
+        const seatGridContainer = document.querySelector('.seat-grid-container');
+        const seatGrid = document.getElementById('seat-grid');
+        const numGrid = document.getElementById('num-grid');
+        const listContainer = document.getElementById('unsubmitted-list');
+        
+        // 反転設定による黒板の位置調整
+        if (this.state.isReversed) {
+            blackboard.style.order = '2';
+            seatGridContainer.style.order = '1';
+            blackboard.style.marginBottom = '0';
+            blackboard.style.marginTop = '20px';
+        } else {
+            blackboard.style.order = '1';
+            seatGridContainer.style.order = '2';
+            blackboard.style.marginBottom = '20px';
+            blackboard.style.marginTop = '0';
+        }
+
+        // 座席レイアウト適用
+        seatGrid.style.gridTemplateRows = `repeat(${this.state.seatRows}, 1fr)`;
+        seatGrid.style.gridTemplateColumns = `repeat(${this.state.seatCols}, 1fr)`;
+
+        seatGrid.innerHTML = '';
+        numGrid.innerHTML = '';
+        listContainer.innerHTML = '';
+
+        let submittedCount = 0;
+        let unsubmittedCount = 0;
+        const currentRecord = this.state.records[this.state.currentTaskId] || {};
+
+        // --- 1. 座席表の描画（反転設定に対応） ---
+        let seatRenderStudents = this.state.students.map((student, index) => ({ student, index }));
+        if (this.state.isReversed) {
+            seatRenderStudents.reverse();
+        }
+
+        seatRenderStudents.forEach(({ student, index }) => {
+            const isSubmitted = !!currentRecord[student.id];
+
+            // 座席表ボタン作成
+            const seatBtn = document.createElement('div');
+            seatBtn.className = `student-btn ${student.isEmpty ? 'empty-seat' : (isSubmitted ? 'submitted' : '')}`;
+            
+            if (!student.isEmpty) {
+                seatBtn.innerHTML = `<div class="id">${student.id}</div><div class="name">${escapeHTML(student.name)}</div>`;
+            }
+
+            // --- ドラッグ＆ドロップ実装（クリックとの競合防止付き） ---
+            // 反転表示中はドラッグを無効にする（視覚と操作の不一致防止）
+            seatBtn.draggable = !this.state.isReversed;
+            seatBtn.dataset.index = index;
+            let isDragging = false;
+
+            seatBtn.addEventListener('dragstart', (e) => {
+                isDragging = true;
+                e.dataTransfer.setData('text/plain', index);
+                seatBtn.style.opacity = '0.4';
+            });
+
+            seatBtn.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                seatBtn.style.transform = 'scale(1.05)';
+            });
+
+            seatBtn.addEventListener('dragleave', (e) => {
+                seatBtn.style.transform = '';
+            });
+
+            seatBtn.addEventListener('drop', (e) => {
+                e.preventDefault();
+                seatBtn.style.transform = '';
+                const fromIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
+                const targetBtn = e.target.closest('.student-btn');
+                if (!targetBtn) return;
+                const toIndex = parseInt(targetBtn.dataset.index, 10);
+                
+                if (fromIndex !== toIndex && !isNaN(fromIndex) && !isNaN(toIndex)) {
+                    app.swapStudents(fromIndex, toIndex);
+                }
+            });
+
+            seatBtn.addEventListener('dragend', (e) => {
+                seatBtn.style.opacity = '1';
+                const seatGridElem = document.getElementById('seat-grid');
+                if(seatGridElem) {
+                    seatGridElem.querySelectorAll('.student-btn').forEach(btn => btn.style.transform = '');
+                }
+                // ドラッグ終了後、少し遅らせてフラグをリセット（clickイベントより後にする）
+                setTimeout(() => { isDragging = false; }, 0);
+            });
+
+            seatBtn.addEventListener('click', () => {
+                if (isDragging) return; // ドラッグ操作だった場合はクリックを無視
+                if (!student.isEmpty) {
+                    this.toggleSubmit(student.id);
+                }
+            });
+            seatGrid.appendChild(seatBtn);
+        });
+
+        // --- 2. 番号表と未提出者リストの描画（★常に出席番号順にソートして描画） ---
+        const sortedStudents = [...this.state.students].sort((a, b) => a.id - b.id);
+        
+        sortedStudents.forEach((student) => {
+            const isSubmitted = !!currentRecord[student.id];
+
+            if (!student.isEmpty) {
+                if (isSubmitted) submittedCount++;
+                else unsubmittedCount++;
+            }
+
+            // 番号表ボタン作成
+            const numBtn = document.createElement('div');
+            numBtn.className = `student-btn num-btn ${student.isEmpty ? 'empty-seat' : (isSubmitted ? 'submitted' : '')}`;
+            if (!student.isEmpty) {
+                numBtn.innerHTML = `<div class="id">${student.id}</div>`;
+                numBtn.onclick = () => this.toggleSubmit(student.id);
+            }
+            numGrid.appendChild(numBtn);
+
+            // 未提出者リスト作成
+            if (!student.isEmpty && !isSubmitted) {
+                const listItem = document.createElement('div');
+                listItem.className = 'list-item';
+                listItem.innerHTML = `<div class="id">${student.id}</div><div class="name">${escapeHTML(student.name)}</div>`;
+                listItem.onclick = () => this.toggleSubmit(student.id);
+                listContainer.appendChild(listItem);
+            }
+        });
+
+        // カウント更新
+        document.getElementById('count-submitted').textContent = submittedCount;
+        document.getElementById('count-unsubmitted').textContent = unsubmittedCount;
+
+        // 反転トグルの状態更新を追加
+        const reverseToggle = document.getElementById('check-reverse');
+        if (reverseToggle) {
+            reverseToggle.checked = !!this.state.isReversed;
+        }
+    }
+
+    renderHistoryTab() {
+        const list = document.getElementById('task-list');
+        list.innerHTML = '';
+        
+        // 新しいもの順に表示
+        [...this.state.tasks].reverse().forEach(task => {
+            const li = document.createElement('li');
+            li.className = `task-item ${task.id === this.state.currentTaskId ? 'active' : ''}`;
+            li.innerHTML = `
+                <div class="task-item-info" style="flex:1; display:flex; flex-direction:column; gap:4px;">
+                    <input type="text" value="${escapeHTML(task.name)}" 
+                        style="font-size:1.1rem; font-weight:bold; border:1px solid transparent; background:transparent; border-radius:4px; padding:2px 5px; width:90%; font-family:inherit; outline:none;"
+                        onchange="app.updateTaskName('${escapeHTML(task.id)}', this.value)"
+                        onfocus="this.style.border='1px solid var(--primary-color)'; this.style.background='#fff';"
+                        onblur="this.style.border='1px solid transparent'; this.style.background='transparent';">
+                    <span style="font-size:0.8rem; color:var(--text-light); margin-left:5px;">${escapeHTML(task.date)}</span>
+                </div>
+                <button class="btn btn-select" onclick="app.selectTask('${escapeHTML(task.id)}')">
+                    ${task.id === this.state.currentTaskId ? '選択中' : '選択'}
+                </button>
+            `;
+            list.appendChild(li);
+        });
+    }
+
+    renderSettingTab() {
+        document.getElementById('setting-rows').value = this.state.seatRows;
+        document.getElementById('setting-cols').value = this.state.seatCols;
+
+        const list = document.getElementById('student-edit-list');
+        list.innerHTML = '';
+        
+        [...this.state.students].sort((a, b) => a.id - b.id).forEach(student => {
+            const item = document.createElement('div');
+            item.className = 'student-edit-item';
+            item.innerHTML = `
+                <span>${student.id}</span>
+                <input type="text" id="edit-name-${student.id}" value="${student.name}" placeholder="名前を入力">
+                <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px; margin-left:10px; cursor:pointer;">
+                    <input type="checkbox" id="edit-empty-${student.id}" ${student.isEmpty ? 'checked' : ''} style="width:auto;">空席
+                </label>
+            `;
+            list.appendChild(item);
+        });
+    }
+
+    // --- アクション ---
+    toggleSubmit(studentId) {
+        if (!this.state.currentTaskId) return;
+
+        if (!this.state.records[this.state.currentTaskId]) {
+            this.state.records[this.state.currentTaskId] = {};
+        }
+
+        const currentState = !!this.state.records[this.state.currentTaskId][studentId];
+        const newState = !currentState;
+        
+        this.state.records[this.state.currentTaskId][studentId] = newState;
+        
+        // 音声再生
+        if (newState) {
+            playTone('success');
+        } else {
+            playTone('error');
+        }
+
+        this.saveData();
+        this.renderCheckTab();
+
+        // 全員提出完了チェック（未提出が0になり、かつ今回提出状態にした場合。空席は除外）
+        const unsubmittedCount = this.state.students.filter(s => !s.isEmpty && !this.state.records[this.state.currentTaskId][s.id]).length;
+        if (unsubmittedCount === 0 && newState === true) {
+            this.triggerConfetti();
+        }
+    }
+
+    swapStudents(fromIndex, toIndex) {
+        const temp = this.state.students[fromIndex];
+        this.state.students[fromIndex] = this.state.students[toIndex];
+        this.state.students[toIndex] = temp;
+        this.saveData();
+        this.renderCheckTab();
+        this.renderSettingTab();
+    }
+
+    resetCurrentTask() {
+        if (!this.state.currentTaskId) return;
+        if (confirm('現在のチェック状態をすべて未提出に戻しますか？')) {
+            this.state.records[this.state.currentTaskId] = {};
+            this.saveData();
+            this.renderCheckTab();
+            playTone('error'); // リセット音として代用
+        }
+    }
+
+    createNewTask() {
+        const input = document.getElementById('new-task-input');
+        const name = input.value.trim();
+        if (!name) {
+            alert('項目名を入力してください');
+            return;
+        }
+
+        const taskId = 'task_' + Date.now();
+        this.state.tasks.push({
+            id: taskId,
+            name: name,
+            date: new Date().toLocaleDateString()
+        });
+        this.state.records[taskId] = {};
+        this.state.currentTaskId = taskId;
+        
+        input.value = '';
+        this.saveData();
+        this.renderAll();
+        this.switchTab('check');
+    }
+
+    updateTaskName(taskId, newName) {
+        const task = this.state.tasks.find(t => t.id === taskId);
+        if (task && newName.trim()) {
+            task.name = newName.trim();
+            this.saveData();
+            this.renderHeader(); // ヘッダーの表示も更新
+        }
+    }
+
+    selectTask(taskId) {
+        this.state.currentTaskId = taskId;
+        this.saveData();
+        this.renderAll();
+        this.switchTab('check');
+    }
+
+    saveStudents() {
+        this.state.seatRows = parseInt(document.getElementById('setting-rows').value, 10) || 6;
+        this.state.seatCols = parseInt(document.getElementById('setting-cols').value, 10) || 7;
+
+        this.state.students.forEach(student => {
+            const inputName = document.getElementById(`edit-name-${student.id}`);
+            const inputEmpty = document.getElementById(`edit-empty-${student.id}`);
+            if (inputName) {
+                student.name = inputName.value.trim() || `児童 ${student.id}`;
+            }
+            if (inputEmpty) {
+                student.isEmpty = inputEmpty.checked;
+            }
+        });
+        this.saveData();
+        this.renderCheckTab();
+        alert('設定と名簿を保存しました');
+    }
+
+    toggleReverse(isChecked) {
+        this.state.isReversed = isChecked;
+        this.saveData();
+        this.renderCheckTab();
+    }
+
+    // --- UI コントロール ---
+    switchTab(tabId) {
+        // ナビボタンの更新
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.getElementById(`nav-${tabId}`).classList.add('active');
+
+        // コンテンツの更新
+        document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+        document.getElementById(`tab-${tabId}`).classList.add('active');
+    }
+
+    triggerConfetti() {
+        // confettiライブラリが読み込めなかった場合はスキップ
+        if (typeof confetti !== 'function') return;
+
+        // 紙吹雪エフェクト
+        var duration = 3 * 1000;
+        var animationEnd = Date.now() + duration;
+        var defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 100 };
+
+        function randomInRange(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        var interval = setInterval(function() {
+            var timeLeft = animationEnd - Date.now();
+            if (timeLeft <= 0) {
+                return clearInterval(interval);
+            }
+            var particleCount = 50 * (timeLeft / duration);
+            confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } }));
+            confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } }));
+        }, 250);
+    }
+}
+
+// アプリの起動
+const app = new App();
+
+</script>
+</body>
+</html>
